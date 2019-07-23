@@ -10,6 +10,7 @@
 static void die(const char *msg);
 static int load_ttc(char *path, FT_Face faces[MAX_FACES]);
 static FT_GlyphSlot render_glyph(FT_Face faces[], int face_count, long char_id);
+static bool output_pgm(FT_Bitmap *bitmap);
 
 static FT_Library library;
 
@@ -29,6 +30,9 @@ int main(void)
 	FT_GlyphSlot slot = render_glyph(faces, face_count, 0x0026);
 	if (slot == NULL)
 		die("failed to render glyph");
+
+	if (!output_pgm(&slot->bitmap))
+		die("failed to output PGM");
 
 	for (int i = 0; i < face_count; ++i)
 		FT_Done_Face(faces[i]);
@@ -94,4 +98,22 @@ static FT_GlyphSlot render_glyph(FT_Face faces[], int face_count, long char_id)
 	}
 
 	return slot;
+}
+
+/// Writes `bitmap` to `stdout` in PGM format. Returns `true` on
+/// success, `false` on error
+static bool output_pgm(FT_Bitmap *bitmap)
+{
+	printf("P5\n%d\n%d\n255\n", bitmap->width, bitmap->rows);
+
+	unsigned offset;
+	for (unsigned y = 0; y < bitmap->rows; ++y) {
+		for (unsigned x = 0; x < bitmap->width; ++x) {
+			offset = y * bitmap->pitch + x;
+			if (putchar(bitmap->buffer[offset]) == EOF)
+				return false;
+		}
+	}
+
+	return true;
 }
