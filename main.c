@@ -1,3 +1,4 @@
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -8,6 +9,7 @@
 
 static void die(const char *msg);
 static int load_ttc(char *path, FT_Face faces[MAX_FACES]);
+static FT_GlyphSlot render_glyph(FT_Face faces[], int face_count, long char_id);
 
 static FT_Library library;
 
@@ -24,7 +26,9 @@ int main(void)
 	if (face_count < 0)
 		die("failed to read font file");
 
-	printf("%d\n", face_count);
+	FT_GlyphSlot slot = render_glyph(faces, face_count, 0x0026);
+	if (slot == NULL)
+		die("failed to render glyph");
 
 	for (int i = 0; i < face_count; ++i)
 		FT_Done_Face(faces[i]);
@@ -61,4 +65,33 @@ static int load_ttc(char *path, FT_Face faces[MAX_FACES])
 	}
 
 	return face_count;
+}
+
+/// Loops through `faces` looking for a typeface with a glyph for
+/// `char_id`. If one is found, it is rendered and that typeface's glyph
+/// slot is returned; if an error occurs while rendering the glyph or no
+/// glyph is found, `NULL` is returned.
+static FT_GlyphSlot render_glyph(FT_Face faces[], int face_count, long char_id)
+{
+	FT_Error error;
+	FT_GlyphSlot slot = NULL;
+
+	for (int i = 0; i < face_count; ++i) {
+		int glyph_index = FT_Get_Char_Index(faces[i], char_id);
+		if (glyph_index == 0)
+			continue; // glyph is not in this face
+
+		error = FT_Set_Pixel_Sizes(faces[i], 0, 18);
+		if (error)
+			return NULL;
+
+		error = FT_Load_Glyph(faces[i], glyph_index, FT_LOAD_RENDER);
+		if (error)
+			return NULL;
+
+		slot = faces[i]->glyph;
+		break;
+	}
+
+	return slot;
 }
