@@ -1,5 +1,6 @@
 [requires]
 freetype/2.10.0@bincrafters/stable
+json-c/0.13.1@bincrafters/stable
 
 [generators]
 cmake
