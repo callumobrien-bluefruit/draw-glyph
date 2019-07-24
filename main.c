@@ -9,18 +9,29 @@
 #define MAX_FACES 32
 #define MAX_PATH_LEN 256
 #define MAX_SPEC_LEN 512
+#define MAX_GLYPH_WIDTH 256
+#define MAX_GLYPH_HEIGHT 256
 
 struct glyph_spec {
 	char font_path[MAX_PATH_LEN];
 	long char_id, pixel_size, width, height, origin_x, origin_y;
 };
 
+struct bitmap {
+	long width, height;
+	char pixels[MAX_GLYPH_HEIGHT][MAX_GLYPH_WIDTH];
+};
+
 static void die(const char *msg);
 static int load_ttc(char *path, FT_Face faces[MAX_FACES]);
-static FT_GlyphSlot render_glyph(FT_Face faces[],
-                                 int face_count,
-                                 const struct glyph_spec *spec);
-static bool output_pgm(FT_Bitmap *bitmap);
+static bool render_glyph(FT_Face faces[],
+                         int face_count,
+                         const struct glyph_spec *spec,
+                         struct bitmap *glyph);
+static bool draw(FT_GlyphSlot slot,
+                 const struct glyph_spec *spec,
+                 struct bitmap *glyph);
+static bool output_pgm(const struct bitmap *image);
 static bool read_spec(const char *path, struct glyph_spec *spec);
 static int read_all(const char *path, char *buffer, int buffer_len);
 static bool extract_spec_value(const struct json_object_iterator *iter,
@@ -34,6 +45,7 @@ int main(int argc, char *argv[])
 	FT_Error error;
 	FT_Face faces[MAX_FACES];
 	struct glyph_spec spec;
+	struct bitmap glyph;
 
 	if (argc < 2)
 		die("usage: draw-glyph GLYPHSPEC");
@@ -49,11 +61,10 @@ int main(int argc, char *argv[])
 	if (face_count < 0)
 		die("failed to read font file");
 
-	FT_GlyphSlot slot = render_glyph(faces, face_count, &spec);
-	if (slot == NULL)
+	if (!render_glyph(faces, face_count, &spec, &glyph))
 		die("failed to render glyph");
 
-	if (!output_pgm(&slot->bitmap))
+	if (!output_pgm(&glyph))
 		die("failed to output PGM");
 
 	for (int i = 0; i < face_count; ++i)
@@ -94,47 +105,82 @@ static int load_ttc(char *path, FT_Face faces[MAX_FACES])
 }
 
 /// Loops through `faces` looking for a typeface with a glyph for
-/// `spec->char_id`. If one is found, it is rendered and that typeface's
-/// glyph slot is returned; if an error occurs while rendering the glyph
-/// or no glyph is found, `NULL` is returned.
-static FT_GlyphSlot render_glyph(FT_Face faces[],
-                                 int face_count,
-                                 const struct glyph_spec *spec)
+/// `spec->char_id`. If one is found, it is rendered and drawn onto
+/// `glyph` and `true` is returned; if an error occurs while rendering
+/// the glyph or no glyph is found, `false` is returned.
+static bool render_glyph(FT_Face faces[],
+                         int face_count,
+                         const struct glyph_spec *spec,
+                         struct bitmap *glyph)
 {
 	FT_Error error;
-	FT_GlyphSlot slot = NULL;
+	FT_Vector origin = {
+		.x = 64*spec->origin_x,
+		.y = 64*(spec->height - spec->origin_y)
+	};
+	bool found_glyph = false;
+	int i, glyph_index;
 
-	for (int i = 0; i < face_count; ++i) {
-		int glyph_index = FT_Get_Char_Index(faces[i], spec->char_id);
+	for (i = 0; i < face_count; ++i) {
+		glyph_index = FT_Get_Char_Index(faces[i], spec->char_id);
 		if (glyph_index == 0)
 			continue; // glyph is not in this face
 
-		error = FT_Set_Pixel_Sizes(faces[i], 0, spec->pixel_size);
-		if (error)
-			return NULL;
-
-		error = FT_Load_Glyph(faces[i], glyph_index, FT_LOAD_RENDER);
-		if (error)
-			return NULL;
-
-		slot = faces[i]->glyph;
+		found_glyph = true;
 		break;
 	}
 
-	return slot;
+	if (!found_glyph)
+		return false;
+
+	error = FT_Set_Pixel_Sizes(faces[i], 0, spec->pixel_size);
+	if (error)
+		return false;
+
+	FT_Set_Transform(faces[i], NULL, &origin);
+
+	error = FT_Load_Glyph(faces[i], glyph_index, FT_LOAD_RENDER);
+	if (error)
+		return false;
+
+	return draw(faces[i]->glyph, spec, glyph);
 }
 
-/// Writes `bitmap` to `stdout` in PGM format. Returns `true` on
-/// success, `false` on error
-static bool output_pgm(FT_Bitmap *bitmap)
+/// Draws the glyph from `slot` into `glyph` at the position given in
+/// `spec`. Returns `true` on success, `false` on error.
+static bool draw(FT_GlyphSlot slot,
+                 const struct glyph_spec *spec,
+                 struct bitmap *glyph)
 {
-	printf("P5\n%d\n%d\n255\n", bitmap->width, bitmap->rows);
-
 	unsigned offset;
+	FT_Bitmap *bitmap = &slot->bitmap;
+	unsigned left = slot->bitmap_left;
+	unsigned top = spec->height - slot->bitmap_top;
+
+	glyph->width = spec->width;
+	glyph->height = spec->height;
+
 	for (unsigned y = 0; y < bitmap->rows; ++y) {
 		for (unsigned x = 0; x < bitmap->width; ++x) {
 			offset = y * bitmap->pitch + x;
-			if (putchar(bitmap->buffer[offset]) == EOF)
+			if (left + x >= glyph->width || top + y >= glyph->height)
+				return false;
+			glyph->pixels[top + y][left + x] = bitmap->buffer[offset];
+		}
+	}
+
+	return true;
+}
+
+/// Writes `image` to `stdout` in PGM format. Returns `true` on
+/// success, `false` on error
+static bool output_pgm(const struct bitmap *image)
+{
+	printf("P5\n%ld\n%ld\n255\n", image->width, image->height);
+
+	for (unsigned y = 0; y < image->height; ++y) {
+		for (unsigned x = 0; x < image->width; ++x) {
+			if (putchar(image->pixels[y][x]) == EOF)
 				return false;
 		}
 	}
