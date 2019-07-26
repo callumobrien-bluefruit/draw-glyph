@@ -31,7 +31,7 @@ static bool render_glyph(FT_Face faces[],
 static bool draw(FT_GlyphSlot slot,
                  const struct glyph_spec *spec,
                  struct bitmap *glyph);
-static bool output_pgm(const struct bitmap *image);
+static bool output_pgm(const char *path, const struct bitmap *image);
 static bool read_spec(const char *path, struct glyph_spec *spec);
 static int read_all(const char *path, char *buffer, int buffer_len);
 static bool extract_spec_value(const struct json_object_iterator *iter,
@@ -47,8 +47,8 @@ int main(int argc, char *argv[])
 	struct glyph_spec spec;
 	struct bitmap glyph;
 
-	if (argc < 2)
-		die("usage: draw-glyph GLYPHSPEC");
+	if (argc < 3)
+		die("usage: draw-glyph GLYPHSPEC OUTFILE");
 
 	if (!read_spec(argv[1], &spec))
 		die("failed to read glyph spec");
@@ -64,7 +64,7 @@ int main(int argc, char *argv[])
 	if (!render_glyph(faces, face_count, &spec, &glyph))
 		die("failed to render glyph");
 
-	if (!output_pgm(&glyph))
+	if (!output_pgm(argv[2], &glyph))
 		die("failed to output PGM");
 
 	for (int i = 0; i < face_count; ++i)
@@ -172,15 +172,18 @@ static bool draw(FT_GlyphSlot slot,
 	return true;
 }
 
-/// Writes `image` to `stdout` in PGM format. Returns `true` on
+/// Writes `image` to `path` in PGM format. Returns `true` on
 /// success, `false` on error
-static bool output_pgm(const struct bitmap *image)
+static bool output_pgm(const char *path, const struct bitmap *image)
 {
-	printf("P5\n%ld\n%ld\n255\n", image->width, image->height);
+	FILE *stream = fopen(path, "wb");
+	if (stream == NULL)
+		return false;
 
+	fprintf(stream, "P5\n%ld\n%ld\n255\n", image->width, image->height);
 	for (unsigned y = 0; y < image->height; ++y) {
 		for (unsigned x = 0; x < image->width; ++x) {
-			if (putchar(image->pixels[y][x]) == EOF)
+			if (fputc(image->pixels[y][x], stream) == EOF)
 				return false;
 		}
 	}
