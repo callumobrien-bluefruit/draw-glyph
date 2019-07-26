@@ -18,7 +18,7 @@ struct glyph_spec {
 };
 
 struct bitmap {
-	long width, height;
+	unsigned long width, height;
 	char pixels[MAX_GLYPH_HEIGHT][MAX_GLYPH_WIDTH];
 };
 
@@ -45,7 +45,7 @@ int main(int argc, char *argv[])
 	FT_Error error;
 	FT_Face faces[MAX_FACES];
 	struct glyph_spec spec;
-	struct bitmap glyph;
+	struct bitmap glyph = { 0 };
 
 	if (argc < 3)
 		die("usage: draw-glyph GLYPHSPEC OUTFILE");
@@ -114,10 +114,7 @@ static bool render_glyph(FT_Face faces[],
                          struct bitmap *glyph)
 {
 	FT_Error error;
-	FT_Vector origin = {
-		.x = 64*spec->origin_x,
-		.y = 64*(spec->height - spec->origin_y)
-	};
+	FT_Vector origin;
 	bool found_glyph = false;
 	int i, glyph_index;
 
@@ -137,6 +134,8 @@ static bool render_glyph(FT_Face faces[],
 	if (error)
 		return false;
 
+	origin.x = 64*spec->origin_x;
+	origin.y = 64*(spec->height - spec->origin_y);
 	FT_Set_Transform(faces[i], NULL, &origin);
 
 	error = FT_Load_Glyph(faces[i], glyph_index, FT_LOAD_RENDER);
@@ -246,7 +245,7 @@ static int read_all(const char *path, char *buffer, int buffer_len)
 			return -1;
 		}
 
-		buffer[buffer_pos++] = c;
+		buffer[buffer_pos++] = (char)c;
 	}
 
 	return buffer_pos;
