@@ -1,10 +1,10 @@
-#include <stdbool.h>
-#include <stdio.h>
-#include <stdlib.h>
-
 #include "freetype2/ft2build.h"
 #include FT_FREETYPE_H
 #include "json-c/json.h"
+
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 #define MAX_FACES 32
 #define MAX_PATH_LEN 256
@@ -134,8 +134,8 @@ static bool render_glyph(FT_Face faces[],
 	if (error)
 		return false;
 
-	origin.x = 64*spec->origin_x;
-	origin.y = 64*(spec->height - spec->origin_y);
+	origin.x = 64 * spec->origin_x;
+	origin.y = 64 * (spec->height - spec->origin_y);
 	FT_Set_Transform(faces[i], NULL, &origin);
 
 	error = FT_Load_Glyph(faces[i], glyph_index, FT_LOAD_RENDER);
@@ -224,7 +224,6 @@ static bool read_spec(const char *path, struct glyph_spec *spec)
 
 	json_tokener_free(tokener);
 	return true;
-
 }
 
 /// Reads the entirety of the file at `path` into `buffer`, returning
